@@ -35,6 +35,9 @@ SELECTED_FEATURES = [
     'time_domain_activation', 'time_domain_expiration',
     'tls_ssl_certificate', 'qty_redirects', 'time_response',
     'domain_in_ip', 'qty_tld_url', 'qty_vowels_domain', 'server_client_domain',
+
+        # DNS-based
+    'qty_nameservers', 'qty_mx_servers', 'domain_spf', 'ttl_hostname', 'qty_ip_resolved',
 ]
 
 # Load data

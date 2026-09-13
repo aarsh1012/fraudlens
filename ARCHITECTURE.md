@@ -128,46 +128,70 @@ Response sent back to frontend
 
 ---
 
-## 5. Tier 3b — ML Service (Python + FastAPI): Prediction Flow
+## 5. Tier 3b — ML Service (Python + FastAPI): Three-Layer Detection Flow
 
-This is the machine learning core, exposed as its own small web service — completely independent of the Node backend, communicating only over HTTP.
+This is the machine learning core, exposed as its own small web service — completely independent of the Node backend, communicating only over HTTP. Prediction happens in **three layers**, checked in priority order, so the most expensive step (the ML model) only runs when the cheaper/faster checks haven't already reached a confident verdict.
 
 ```
 POST /predict { url }
    │
    ▼
-Is domain in Trusted Whitelist?
+LAYER 1 — Trusted Domain Whitelist
+   │  Is this domain (or a subdomain of it) globally trusted?
    │
-   ├── YES ──► Return { LEGITIMATE, 99% confidence }
+   ├── YES ──► Return { LEGITIMATE, 99% confidence }  [STOP]
    │
-   └── NO ──► extract_all_features(url)
-                 │
-                 ├──► String-based features   (feature_extractor.py)
-                 ├──► Network-based features   (network_features.py)
-                 │
-                 ▼
-              Combine into one feature row
-                 │
-                 ▼
-              Load trained model (fraud_model_v2.pkl)
-                 │
-                 ▼
-              Predict + confidence score
-                 │
-                 ▼
-              Return JSON result to caller
+   └── NO
+        ▼
+     LAYER 2 — Google Safe Browsing (live check)
+        │  Has Google already confirmed this exact URL is malicious?
+        │
+        ├── YES ──► Return { PHISHING, 99% confidence }  [STOP]
+        │
+        └── NO
+             ▼
+          LAYER 3 — Trained ML Model
+             │
+             ▼
+          extract_all_features(url)
+             │
+             ├──► String-based features        (feature_extractor.py)
+             │
+             └──► Network-based features, run IN PARALLEL via ThreadPoolExecutor:
+                     ├── Domain age (WHOIS)
+                     ├── SSL certificate validity
+                     ├── Redirect count
+                     ├── Response time
+                     └── DNS features (nameservers, MX, SPF, TTL, resolved IPs)
+             │
+             ▼
+          Combine into one feature row
+             │
+             ▼
+          Load trained model (fraud_model_v2.pkl)
+             │
+             ▼
+          Predict + confidence score
+             │
+             ▼
+          Return JSON result to caller
 ```
+
+**Why this order matters:**
+- The whitelist check is instant (no network calls) — costs nothing to check first.
+- Safe Browsing is a single fast API call (~100–300ms) — much cheaper than the full feature-extraction pipeline, and catches URLs already confirmed malicious by Google's constantly-updated threat database, including scams newer than our training data.
+- Only URLs that pass both checks reach the ML model, which is the most expensive step (several live network lookups).
+- Running the network-based feature checks (WHOIS, SSL, redirects, response time, DNS) **in parallel** via `ThreadPoolExecutor` instead of one after another reduced total prediction time by roughly 30% (measured: 4.49s → 3.17s for a full ML-layer check).
 
 | Component | Responsibility | File |
 |---|---|---|
 | **API layer** | Exposes the `/predict` endpoint, validates the incoming request shape. | `main.py` |
-| **Whitelist check** | Short-circuits well-known trusted domains (and their subdomains) before running the ML model at all. | `predict.py` → `TRUSTED_DOMAINS` |
-| **Feature extraction (string-based)** | Calculates URL/domain/directory/file/query-string lexical features purely from the text of the URL. | `feature_extractor.py` |
-| **Feature extraction (network-based)** | Performs live lookups: domain age (WHOIS), SSL certificate validity, redirect count, response time, plus extra heuristics (IP-literal domain, TLD count, vowel ratio, shortener detection). | `network_features.py` |
-| **Model** | A Random Forest classifier trained on 46 real-time-computable features, achieving 94.3% test accuracy. Loaded from disk at prediction time. | `fraud_model_v2.pkl`, `selected_features.pkl` |
+| **Layer 1 — Whitelist** | Short-circuits well-known trusted domains (and their subdomains). | `predict.py` → `TRUSTED_DOMAINS` |
+| **Layer 2 — Safe Browsing** | Calls Google's Safe Browsing API to check if the exact URL is already known-malicious. | `network_features.py` → `check_safe_browsing()` |
+| **Layer 3 — Feature extraction (string-based)** | Calculates URL/domain/directory/file/query-string lexical features purely from the text of the URL. | `feature_extractor.py` |
+| **Layer 3 — Feature extraction (network-based)** | Live lookups run in parallel: domain age (WHOIS), SSL validity, redirect count, response time, DNS records (nameservers, MX, SPF, TTL, resolved IPs), plus lexical heuristics (IP-literal domain, TLD count, vowel ratio, shortener detection). | `network_features.py` |
+| **Model** | A Random Forest classifier trained on real-time-computable features, achieving 95.7% test accuracy. Loaded from disk at prediction time. | `fraud_model_v2.pkl`, `selected_features.pkl` |
 | **Training pipeline** | Separate from the live prediction path — used only when retraining the model, not called during normal operation. | `train_model_v2.py` |
-
-**Why the whitelist check happens before feature extraction:** it saves unnecessary WHOIS/SSL/redirect lookups for domains we already know are safe, and avoids the model ever being asked to judge a domain it has no business questioning.
 
 ---
 
@@ -232,15 +256,17 @@ FraudLens/
 │
 ├── ML-Services/                     (Python + FastAPI)
 │   ├── main.py                      ← API layer
-│   ├── predict.py                   ← Whitelist + orchestration
+│   ├── predict.py                   ← Whitelist + Safe Browsing + ML orchestration
 │   ├── feature_extractor.py         ← String-based features
-│   ├── network_features.py          ← Network-based features
+│   ├── network_features.py          ← Network/DNS features + Safe Browsing check
 │   ├── train_model_v2.py            ← Training pipeline
 │   ├── fraud_model_v2.pkl           ← Trained model
 │   ├── selected_features.pkl        ← Expected feature order
 │   ├── dataset_small.csv            ← Training data
 │   ├── dataset_full.csv             ← Validation data
-│   └── tests/                       ← Exploration/debug scripts
+│   ├── requirements.txt             ← Python dependencies
+│   ├── .env                         (GOOGLE_SAFE_BROWSING_API_KEY)
+│   └── tests/                       ← Exploration/debug/benchmark scripts
 │
 └── ARCHITECTURE.md                  ← This file
 ```
@@ -258,6 +284,9 @@ FraudLens/
 | Database | MongoDB Atlas + Mongoose | Flexible schema, easy cloud hosting |
 | ML | Python, scikit-learn, pandas, joblib | Industry-standard ML tooling |
 | ML API | FastAPI + Uvicorn | Lightweight, auto-generates interactive API docs |
+| DNS lookups | dnspython | Free nameserver/MX/SPF/TTL queries |
+| Live threat intel | Google Safe Browsing API | Free, constantly-updated database of known-malicious URLs |
+| Concurrency | Python `ThreadPoolExecutor` | Runs independent network checks in parallel instead of sequentially |
 | Inter-service communication | Axios (Node → Python) | Simple HTTP calls between services |
 | Deployment (planned) | Vercel (frontend), Render (backend + ML service) | Free tier, straightforward deploys |
 
@@ -267,5 +296,7 @@ FraudLens/
 
 1. **Every layer has one job.** UI doesn't fetch data. Controllers don't contain business logic. Services don't touch HTTP requests/responses directly.
 2. **Every ML feature used in production must be honestly reproducible in real time** — no feature is used in training that can't also be computed for a brand-new, live input.
-3. **List-based safety nets complement the learned model, not replace it** — the trusted-domain whitelist exists because no ML model should be expected to correctly judge every case alone.
-4. **Both detection modes (URL and app) share the same infrastructure** — one auth system, one database, one frontend shell — so adding the app-detection module later means adding a new service and route, not rebuilding the app.
+3. **Cheaper, faster checks run before expensive ones.** The whitelist and Safe Browsing checks are tried first, in increasing order of cost, so the ML model — the most expensive step — only runs when genuinely needed.
+4. **List-based and live-lookup safety nets complement the learned model, not replace it** — no ML model, trained on a static historical dataset, should be expected to correctly judge every case alone, especially against threats newer than its training data.
+5. **Independent operations run in parallel, not sequentially**, wherever they don't depend on each other's results — applied to the network-based feature checks to reduce total response time.
+6. **Both detection modes (URL and app) share the same infrastructure** — one auth system, one database, one frontend shell — so adding the app-detection module later means adding a new service and route, not rebuilding the app.

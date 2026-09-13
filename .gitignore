@@ -1,0 +1,9 @@
+Backend/node_modules/
+Backend/.env
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.env
+ML-Services/.venv/
+ML-Services/.env
+ML-Services/__pycache__/
+ML-Services/**/__pycache__/
