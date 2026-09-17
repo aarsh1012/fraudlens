@@ -4,12 +4,11 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const connectToDB = require("./src/config/database");
 const authRoutes = require("./src/routes/auth.routes");
+const urlCheckRoutes = require("./src/routes/urlCheck.routes");
 
 const app = express();
 
 connectToDB();
-
-app.use("/api/auth", authRoutes);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -17,6 +16,10 @@ app.use(cors({
     origin: process.env.FRONTEND_URL,
     credentials: true,
 }));
+
+app.use("/api/auth", authRoutes);
+app.use("/api", urlCheckRoutes);
+
 
 app.get("/", (req, res) => {
     res.send("FraudLens backend is running");

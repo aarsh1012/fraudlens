@@ -1,0 +1,90 @@
+@use "./style/button.scss";
+@use "sass:color";
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+
+:root {
+    /* Core palette */
+    --color-bg: #0a0710;
+    --color-panel: #12101c;
+    --color-panel-border: rgba(168, 85, 247, 0.25);
+
+    /* Status colors */
+    --color-primary: #a855f7;      /* purple - brand */
+    --color-primary-glow: rgba(168, 85, 247, 0.35);
+    --color-success: #22d3a5;      /* green - safe */
+    --color-success-bg: rgba(34, 211, 165, 0.08);
+    --color-success-border: rgba(34, 211, 165, 0.4);
+    --color-danger: #f5a524;       /* orange - threat detected */
+    --color-danger-bg: rgba(245, 165, 36, 0.08);
+    --color-danger-border: rgba(245, 165, 36, 0.4);
+    --color-suspicious: #b45cf5;   /* violet - suspicious */
+    --color-suspicious-bg: rgba(180, 92, 245, 0.08);
+    --color-suspicious-border: rgba(180, 92, 245, 0.4);
+
+    --color-text: #e7e4f0;
+    --color-text-dim: #8b86a3;
+    --color-gray-300: rgba(168, 85, 247, 0.25);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body, #root {
+    width: 100%;
+    min-height: 100vh;
+    background-color: var(--color-bg);
+    background-image: radial-gradient(circle at 50% 0%, rgba(168, 85, 247, 0.08), transparent 60%);
+    color: var(--color-text);
+    font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+
+    &.badge-safe {
+        color: var(--color-success);
+        background: var(--color-success-bg);
+        border-color: var(--color-success-border);
+    }
+    &.badge-danger {
+        color: var(--color-danger);
+        background: var(--color-danger-bg);
+        border-color: var(--color-danger-border);
+    }
+    &.badge-suspicious {
+        color: var(--color-suspicious);
+        background: var(--color-suspicious-bg);
+        border-color: var(--color-suspicious-border);
+    }
+}
+
+.hightlight {
+    color: #7e2828;
+}
